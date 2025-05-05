@@ -1,0 +1,2 @@
+127.0.0.0/8:payloads/localhost.js,scr/localhost.js
+0.0.0.0/0:payloads/worldwide.js,scr/pitbull.js
