@@ -1,0 +1,173 @@
+               _     _                _
+              | |   | |              | |
+              | |__ | |_   _  ___  __| |_ __ ___  __ _ _ __ ___
+              | '_ \| | | | |/ _ \/ _` | '__/ _ \/ _` | '_ ` _ \
+              | |_) | | |_| |  __/ (_| | | |  __/ (_| | | | | | |
+              |_.__/|_|\__,_|\___|\__,_|_|  \___|\__,_|_| |_| |_|
+
+================================================================================
+  
+         i went on a [47d1] and all i got was this lousy vscode worm...
+
+                                     (or)
+
+         i tried to write a README and all i got was this lousy writeup
+
+  NOTE: some of this writeup had to be redacted for, uh, reasons. any redactions
+        will be replaced with a relevant sha256 tag, which will be expanded at
+        the end of the file. example: [480b2b30]
+
+  INTRO
+        late one night, i had an idea. 'memba xcodeghost? pepperidge farm
+      remembers. what about vscodeghost? except, instead of infecting *OS apps,
+      it infects vscode. hmm?
+
+        it's a vscode worm. alice installs an infected extension, and any
+      extensions (packaged or minified) become infected. once uploaded to the
+      marketplace, or otherwise distributed, each install becomes a new alice.
+
+        i will readily admit that i [084a1631cd59ed1a3244305b6fbc28a2d93c97a7df]
+
+        this worm was written over the course of a 3-week [47d1] in which i
+      [e6400ef383e6509261b52d3f16e466752487a27e19d0579a3eb5567bb7244055]. lmao
+
+        it was bad... [e2b5ed016720f26e10bc200c8c528241298f9a64db8559b9ad8276b8]
+      shit. [affa8bd6c29038c52a423488d1b037615d7bb8a8384736d46837c662887303f]...
+      i know i gotta sleep in a few hours. welp. note from future spv: you're a
+      dick. it's half past 2 and i'm copy editing your shit. fuck you. <3
+
+        with that out of the way, let's begin with the writeup & description. i
+      think the only real way to do this is to go through the architecture
+      first. otherwise idk that any of this will make sense. it took me a couple
+      readthroughs of the source to understand what the fuck was going on...
+
+  ARCHITECTURE
+        bluedream is made up of two interlinked components, with separate
+      directories for each. cnc holds the command-and-control server, with inf
+      containing the src for the local infection, and its custom build system.
+      these components will be referred to by their respective directory names,
+      cnc, and inf.
+
+        inf is built by build_payload.js & gen_pwnage.js. build_payload is
+      passed a payload descriptor (pd) file, which contains a reference to each
+      JS file to be included. this allows one to easily configure of the exact
+      features of a payload. build_payload also requires the specification of an
+      output file, to which the payload, minified & brotli compressed, will be
+      written.
+
+        after this, gen_pwnage wraps the payload. to ease identification of the
+      infection, as will be described in detail further on. in the end, one will
+      be left with inf.
+
+        cnc is also a custom job. cnc accepts a block descriptor (bd) file,
+      which is used to serve different payloads to different victims. a bd file
+      is composed of one or more entries of the form
+      `(ip)[/(block_size)]:(payload)[,(script)]`. any ip within said block will
+      be served the payload specified, with the script (if) specified being ran
+      upon each serving.
+
+        with the basics of bluedream's architecture covered, let's get into the
+      nitty-griddy details of what makes her tick.
+    
+  TICK TICK TICK
+        inf runs every time an infected extension is triggered, often at
+      startup. upon being triggered, inf phones home to cnc at most once a day,
+      which provides an updated copy of inf. after this, it spreads to any files
+      in the workspace which contain (compiled) extension code. following this,
+      inf spreads to all other currently installed extensions, in case the
+      original vector is removed. lastly, inf will spread to any packaged
+      extensions in the current workspace.
+
+        in the following sections, we will discuss in (potentially excruciating)
+      detail, how each of these vectors of spread work.
+    
+  SENTINELS
+        the packaged infection is stored within extensions. much like a
+      biological virus, it needs a host. to separate inf from the legitimate
+      code, two markers are used. the specifics do not matter, but my commie ass
+      used /*瑲慮猠*/ and /*物杨瑳*/. these are entirely gibberish Chinese characters.
+
+        however, pipe them into a hex dump, and they are -- still garbage.
+      codepoints, though? U+7472, U+616E, etc. interesting. interpret UTF-16 as
+      ASCII, and they spell out "trans rights" :P
+
+  THE MINI
+        extensions are fun things. while you may write your neat and clean
+      typescript, at the end of the day, it's javascript all the way down... and
+      because we decided to take a technology hacked together in under two weeks
+      and use it to power the entire fucking internet and most user-facing
+      applications, we developed minification. even then, discord takes up
+      ~100MB because it's its own damned chromium install... i fucking hate
+      javascript.
+
+        minification also provides some convenience for malware developers, like
+      us. several megabyte, one line, obfuscated javascript isn't "a major cause
+      for concern", it's just "webpack"! yay!
+
+        we pick a spot to insert inf. either between two lines of typescript
+      boilerplate, in a known location for webpack, or just at the end. this
+      procedure is used to infect all extensions -- including local output
+      files, as in `extension_js_spread`, local extension persistence as in
+      `extension_spread`, and packaged extensions as in `vsix_spread`. what is a
+      vsix, anyway?
+
+  WHAT IS A VSIX, ANYWAY?
+        vscode uses the vsix format to package extensions. vsix is, in essence,
+      a glorified zip file. the relevant files for this writeup being
+      extension.vsixmanifest, extension/package.json*, and
+      extension/out/extension.js*.
+
+        a vsixmanifest is an XML-formatted file that is, (i believe), used in
+      both visual studio, and vscode. the relevant key in this file is
+      "Microsoft.VisualStudio.Code.Manifest", which points at the package.json.
+
+        within package.json, the key "main" points at the javascript code ran
+      when the extension is triggered. with this knowledge, we are able to use
+      the procedure described in THE MINI in order to pwn packaged extensions.
+      the only difference being that we need logic to process zip files. the
+      relevant code is in inf/mal/spread/vsix.js. this is a combination of YAZL,
+      and an utterly nightmarish artisan-rolled zip file parser that to cope
+      with imma need some artisan-rolled shit of my own...
+
+        *these are the file names by convention. they do not technically have to
+      be present at these particular locations.
+
+  CONCLUSION(s)
+        what would have stopped this attack from working? for one, signing
+      vscode extensions upon packaging would have helped. vsce, the main tool
+      used to package (, and often publish) vscode extensions, has had a github
+      issue for this very topic since july of 2017. vscode never implemented
+      support, though. [vsce_issue]
+
+        i recall reading that extensions are signed upon being uploaded to the
+      marketplace, but this would not prevent this attack, as extensions are
+      already pwned by the time they're sent to the marketplace.
+
+        and lastly, you are not an APT. sorry. this worm was written over the
+      course of a 3 week [47d1] -- a coping mechanism after some interpersonal
+      termoil, in which i experienced such delusions of grandeur that i
+      genuinely believed that this worm was my golden ticket -- that i would be
+      set for life, money wise. this is of course, utterly laughable. i threw
+      away the plan immediately after deployment anyway, as i had recently
+      [82821f1ccb55943a67b2d7689e08f7c6e548d3778b0835d2d0eebaf43c81e2bd], and i
+      proceeded to [1c747f5c1eac42e9eb77c538a4f77b3b4c18b0bd8ce62dc88637e585a2].
+
+                                   SHA_TAGS
+                                  ==========
+        084a1631cd59ed1a3244305b6fbc28a2d93c97a7df8dc117c90955a728b00d35
+        1c747f5c1eac42e9eb77c538a4f77b3b4c18b0bd8ce62dc88637e585a2701298
+        47d140cbea401190e9612d5c7e3bd78a5fbb63def20832036a1b2c4fbbac636b
+        480b2b30b0c14c30d3f130561a44c77cba580910d2789593e4e379c2d26bc3f8
+        82821f1ccb55943a67b2d7689e08f7c6e548d3778b0835d2d0eebaf43c81e2bd
+        affa8bd6c29038c52a423488d1b037615d7bb8a8384736d46837c662887303f9
+        e2b5ed016720f26e10bc200c8c528241298f9a64db8559b9ad8276b859a660ac
+        e6400ef383e6509261b52d3f16e466752487a27e19d0579a3eb5567bb7244055
+
+
+      OG: 6628738fac546ec9cf6193e2b3ab753e11f62f4fff8348ee4e0f499e00167210
+
+                                     LINKS
+                                    =======
+         vsce_issue: https://github.com/Microsoft/vscode-vsce/issues/191
+
+                                 ~ spv, 2025.
